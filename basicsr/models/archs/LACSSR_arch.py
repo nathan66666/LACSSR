@@ -28,7 +28,7 @@ from basicsr.models.archs.local_arch import Local_Base
 from einops import rearrange
 import math
 
-from basicsr.models.archs.swin2sr_arch import RSTB, UpsampleOneStep, PatchUnEmbed, PatchEmbed, Upsample
+from basicsr.models.archs.swinir_arch import RSTB, UpsampleOneStep, PatchUnEmbed, PatchEmbed, Upsample
 
 
 def window_partition(x, window_size):
@@ -136,22 +136,28 @@ class SCAM(nn.Module):
         rpi = self.calculate_rpi_oca()
         v_l = x_l
         v_r = x_r
-        x_l= self.norm_l(x_l)
-        qkv = self.qkv(x_l.permute(0, 2, 3, 1)).reshape(b, h, w, 3, c).permute(3, 0, 4, 1, 2) # 3, b, c, h, w
-        q = qkv[0].permute(0, 2, 3, 1) # b, h, w, c
-        kv = torch.cat((qkv[1], qkv[2]), dim=1) # b, 2*c, h, w
+        x_l = self.norm_l(x_l).permute(0, 2, 3, 1) #torch.Size([1, 32, 32, 128])
+        x_r = self.norm_l(x_r)
+        # print(x_r.shape)
 
-        # partition windows
-        q_windows = window_partition(q, self.window_size)  # nw*b, window_size, window_size, c
+        q_windows = window_partition(x_l, self.window_size)
+        # print(q_windows.shape)#torch.Size([16, 8, 8, 128])
         q_windows = q_windows.view(-1, self.window_size * self.window_size, c)  # nw*b, window_size*window_size, c
+        
+        k_windows = self.unfold(x_r)
+        # print(k_windows.shape)#torch.Size([1, 18432, 16])
+        k_windows = rearrange(k_windows, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=1, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 1, nw*b, ow*ow, c
 
-        kv_windows = self.unfold(kv) # b, c*w*w, nw
-        kv_windows = rearrange(kv_windows, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=2, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 2, nw*b, ow*ow, c
-        k_windows, v_windows = kv_windows[0], kv_windows[1] # nw*b, ow*ow, c
-
+        v_windows = self.unfold(x_r)
+        v_windows = rearrange(v_windows, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=1, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 1, nw*b, ow*ow, c
+        
         b_, nq, _ = q_windows.shape
-        _, n, _ = k_windows.shape
+        _, _, n, _ = k_windows.shape
+
         d = self.dim // self.num_heads
+        # print(q_windows.shape)#torch.Size([16, 64, 128])
+        # print(b_, nq, self.num_heads, d)#16 64 8 16
+
         q = q_windows.reshape(b_, nq, self.num_heads, d).permute(0, 2, 1, 3) # nw*b, nH, nq, d
         k = k_windows.reshape(b_, n, self.num_heads, d).permute(0, 2, 1, 3) # nw*b, nH, n, d
         v = v_windows.reshape(b_, n, self.num_heads, d).permute(0, 2, 1, 3) # nw*b, nH, n, d
@@ -170,20 +176,17 @@ class SCAM(nn.Module):
         # merge windows
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, self.dim)
         x_l_ = window_reverse(attn_windows, self.window_size, h, w)  # b h w c
-#####################
-        x_r= self.norm_r(x_r)
+        #print(x_l_.shape)#torch.Size([1, 32, 32, 128])
+        #x_l_=self.l_proj1(self.norm_l(x_l_.permute(0, 3, 1, 2)))
+        
+##########################################################
+        q_windows_ = window_partition(x_r.permute(0, 2, 3, 1), self.window_size)
 
-        qkv_ = self.qkv(x_r.permute(0, 2, 3, 1)).reshape(b, h, w, 3, c).permute(3, 0, 4, 1, 2) # 3, b, c, h, w
-        q_ = qkv_[0].permute(0, 2, 3, 1) # b, h, w, c
-        kv_ = torch.cat((qkv_[1], qkv_[2]), dim=1) # b, 2*c, h, w
+        k_windows_ = self.unfold(x_l.permute(0, 3, 1, 2))
+        k_windows_ = rearrange(k_windows_, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=1, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 1, nw*b, ow*ow, c
 
-        # partition windows
-        q_windows_ = window_partition(q_, self.window_size)  # nw*b, window_size, window_size, c
-        q_windows_ = q_windows_.view(-1, self.window_size * self.window_size, c)  # nw*b, window_size*window_size, c
-
-        kv_windows_ = self.unfold(kv_) # b, c*w*w, nw
-        kv_windows_ = rearrange(kv_windows_, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=2, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 2, nw*b, ow*ow, c
-        k_windows_, v_windows_ = kv_windows_[0], kv_windows_[1] # nw*b, ow*ow, c
+        v_windows_ = self.unfold(x_l.permute(0, 3, 1, 2))
+        v_windows_ = rearrange(v_windows_, 'b (nc ch owh oww) nw -> nc (b nw) (owh oww) ch', nc=1, ch=c, owh=self.overlap_win_size, oww=self.overlap_win_size).contiguous() # 1, nw*b, ow*ow, c
 
         q_ = q_windows_.reshape(b_, nq, self.num_heads, d).permute(0, 2, 1, 3) # nw*b, nH, nq, d
         k_ = k_windows_.reshape(b_, n, self.num_heads, d).permute(0, 2, 1, 3) # nw*b, nH, n, d
@@ -192,9 +195,6 @@ class SCAM(nn.Module):
         q_ = q_ * self.scale
         attn_ = (q_ @ k_.transpose(-2, -1))
 
-        relative_position_bias = self.relative_position_bias_table[rpi.view(-1)].view(
-            self.window_size * self.window_size, self.overlap_win_size * self.overlap_win_size, -1)  # ws*ws, wse*wse, nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, ws*ws, wse*wse
         attn_ = attn_ + relative_position_bias.unsqueeze(0)
 
         attn_ = self.softmax(attn_)
@@ -203,14 +203,16 @@ class SCAM(nn.Module):
         # merge windows
         attn_windows_ = attn_windows_.view(-1, self.window_size, self.window_size, self.dim)
         x_r_ = window_reverse(attn_windows_, self.window_size, h, w)  # b h w c
-        #print('x_l_',x_l_.shape)#([1, 32, 32, 128])
-        # print('x_r',x_r.shape)
-        #print((self.norm_l(x_l_.permute(0, 3, 1, 2))).shape)#torch.Size([1, 128, 32, 32]) 
+        #print(x_r_.shape)
+        #x_r_=self.l_proj2(self.norm_r(x_r_.permute(0, 3, 1, 2)))       
+
         Q_l = self.l_proj1(self.norm_l(x_l_.permute(0, 3, 2, 1))).permute(0, 2, 3, 1)  # B, H, W, c
         Q_r_T = self.r_proj1(self.norm_r(x_r_.permute(0, 3, 2, 1))).permute(0, 2, 1, 3) # B, H, c, W (transposed)
+       
+        # Q_r_T = self.r_proj1(self.norm_r(x_r)).permute(0, 2, 1, 3) # B, H, c, W (transposed)
 
-        V_l = self.l_proj2(x_l).permute(0, 2, 3, 1)  # B, H, W, c
-        V_r = self.r_proj2(x_r).permute(0, 2, 3, 1)  # B, H, W, c
+        V_l = self.l_proj2(v_l).permute(0, 2, 3, 1)  # B, H, W, c
+        V_r = self.r_proj2(v_r).permute(0, 2, 3, 1)  # B, H, W, c
 
         # (B, H, W, c) x (B, H, c, W) -> (B, H, W, W)
         attention = torch.matmul(Q_l, Q_r_T) * self.scale
@@ -229,7 +231,7 @@ class SCAM(nn.Module):
         feat = [x_l.flatten(2).permute(0, 2, 1), x_r.flatten(2).permute(0, 2, 1)]
         return feat
 
-class ST2NetSR(nn.Module):
+class STNetSR(nn.Module):
     def __init__(self,
                  img_size=64,
                  patch_size=1,
@@ -240,8 +242,8 @@ class ST2NetSR(nn.Module):
                  window_size=7,
                  mlp_ratio=4.,
                  qkv_bias=True,
+                 qk_scale=None,
                  overlap_ratio=0.5,
-          
                  drop_rate=0.,
                  attn_drop_rate=0.,
                  drop_path_rate=0.1,
@@ -322,7 +324,7 @@ class ST2NetSR(nn.Module):
                 window_size=window_size,
                 mlp_ratio=self.mlp_ratio,
                 qkv_bias=qkv_bias,
-             
+                qk_scale=qk_scale,
                 drop=drop_rate,
                 attn_drop=attn_drop_rate,
                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],  # no impact on SR results
@@ -470,7 +472,7 @@ class ST2NetSR(nn.Module):
         return flops
 
 
-class ST2SSR_MSCAM_(Local_Base, ST2NetSR):
+class LACSSR(Local_Base, STNetSR):
     def __init__(self,
                  img_size=64,
                  patch_size=1,
@@ -500,7 +502,7 @@ class ST2SSR_MSCAM_(Local_Base, ST2NetSR):
                  **kwargs
                  ):
         Local_Base.__init__(self)
-        ST2NetSR.__init__(self,
+        STNetSR.__init__(self,
                          img_size=img_size,
                          patch_size=patch_size,
                          in_chans=in_chans,
@@ -539,7 +541,7 @@ if __name__ == '__main__':
     height = (1024 // upscale // window_size + 1) * window_size
     width = (720 // upscale // window_size + 1) * window_size
     train_size = (1, 6, 32, 32)
-    model = ST2SSR_MSCAM(
+    model = LACSSR(
         upscale=4,
         img_size=(height, width),
         window_size=window_size,

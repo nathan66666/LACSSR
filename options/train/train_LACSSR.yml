@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: xs000_GAN_DSCAM-ST_0.3
+name: train_LACSSR
 model_type: DASR_GAN_bic_Model
 scale: 4
 num_gpu: 8
@@ -156,7 +156,7 @@ datasets:
 
 # network structures
 network_g:
-  type: STSSR_MSCAM
+  type: LACSSR
   upscale: 4
   in_chans: 3
   img_size: 64
@@ -181,8 +181,7 @@ network_d:
 
 # path
 path:
-  pretrain_network_g: /lxy/STSSR/basicsr/test/swinir/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth
-  # param_key_g: params_ema
+  pretrain_network_g: ~
   strict_load_g: false
   resume_state: ~
 
@@ -251,12 +250,6 @@ val:
       type: calculate_psnr
       crop_border: 0
       test_y_channel: false
-    # ssim:
-    #   type: calculate_skimage_ssim
-    # ssim: # metric name, can be arbitrary
-    #   type: calculate_ssim
-    #   crop_border: 0
-    #   test_y_channel: false
 
     lpips:
       type: calculate_lpips

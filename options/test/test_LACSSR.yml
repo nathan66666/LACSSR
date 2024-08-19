@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: xs000_GAN_DSCAM-ST_3
+name: test_LACSSR
 model_type: ImageRestorationModel
 scale: 4
 num_gpu: 1
@@ -49,7 +49,7 @@ datasets:
       type: disk
 # network structures
 network_g:
-  type: STSSR_MSCAM
+  type: LACSSR
   upscale: 4
   in_chans: 3
   img_size: 64
