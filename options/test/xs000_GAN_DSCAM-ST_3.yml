@@ -1,0 +1,100 @@
+# ------------------------------------------------------------------------
+# Copyright (c) 2022 megvii-model. All Rights Reserved.
+# ------------------------------------------------------------------------
+# Modified from BasicSR (https://github.com/xinntao/BasicSR)
+# Copyright 2018-2020 BasicSR Authors
+# ------------------------------------------------------------------------
+# general settings
+name: xs000_GAN_DSCAM-ST_3
+model_type: ImageRestorationModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+# dataset and data loader settings
+datasets:
+  # test_0:
+  #   name: Flickr1024
+  #   type: PairedImageSRLRDataset
+  #   dataroot_gt: /lxy/datasets/stereo/Val/Validation
+  #   dataroot_lq: /lxy/datasets/stereo/Val/LR_x4
+  #   io_backend:
+  #     type: disk
+  test_1:
+    name: holopix50k_val_level1
+    type: PairedImageSRLRDataset_
+    dataroot_gt: /dev/Holopix50k/holopix_100/hr
+    dataroot_lq: /dev/Holopix50k/_holopix_level1_100
+    io_backend:
+      type: disk
+  test_2:
+    name: holopix50k_val_level2
+    type: PairedImageSRLRDataset_
+    dataroot_gt: /dev/Holopix50k/holopix_100/hr
+    dataroot_lq: /dev/Holopix50k/_holopix_level2_100
+    io_backend:
+      type: disk
+  test_3:
+    name: holopix50k_val_level3
+    type: PairedImageSRLRDataset_
+    dataroot_gt: /dev/Holopix50k/holopix_100/hr
+    dataroot_lq: /dev/Holopix50k/_holopix_level3_100
+    io_backend:
+      type: disk
+  test_4:
+    name: holopix50k_val_bic
+    type: PairedImageSRLRDataset_
+    dataroot_gt: /dev/Holopix50k/holopix_100/hr
+    dataroot_lq: /dev/Holopix50k/holopix_100/holopix_bicx4
+    io_backend:
+      type: disk
+# network structures
+network_g:
+  type: STSSR_MSCAM
+  upscale: 4
+  in_chans: 3
+  img_size: 64
+  window_size: 8
+  overlap_ratio: 0.3
+  img_range: 1.0
+  depths: [6, 6, 6, 6, 6, 6]
+  embed_dim: 180
+  num_heads: [6, 6, 6, 6, 6, 6]
+  mlp_ratio: 2
+  upsampler: 'nearest+conv'
+  resi_connection: '1conv'
+  train_size: [1, 6, 64, 64]
+  dual: true
+  fusion: true
+
+# path
+path:
+  pretrain_network_g: /lxy/LACSSR/experiments/pretrained_model/LACSSR.pth
+  strict_load_g: true
+  resume_state: ~
+
+# validation settings
+val:
+  save_img: false
+  grids: false
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+    # ssim: # metric name, can be arbitrary
+    #   type: calculate_ssim
+    #   crop_border: 0
+    #   test_y_channel: false
+
+    lpips:
+      type: calculate_lpips
+      crop_border: 0
+      test_y_channel: false
+
+  
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
